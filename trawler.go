@@ -130,7 +130,7 @@ func commandListSnapshots(ctx context.Context, client *godo.Client) error {
 		return err
 	}
 
-	println("Snaphots found: ", len(result))
+	println("Snapshots found: ", len(result))
 	for _, snapshot := range result {
 		println(snapshot.Name)
 		// godo.Snapshot{ID:"28015723", Name:"git.hdws.de 2017-09-22", ResourceID:"5171268", ResourceType:"droplet", Regions:["fra1"], MinDiskSize:30, SizeGigaBytes:5.89, Created:"2017-09-22T22:39:52Z"}
