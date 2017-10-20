@@ -55,7 +55,7 @@ func main() {
 		var snapshotId string
 		snapshotId, err = commandSnapshotVolume(ctx, client, volumeName, region, flag.Arg(3))
 		if err == nil {
-			fmt.Println("snapshot created: \"", snapshotId, "\"")
+			fmt.Println("snapshot id: \"", snapshotId, "\" for volume: \""+volumeName+"\"  created:")
 		}
 	} else if command == "deleteSnapshot" {
 		snapshotId := flag.Arg(1)
@@ -64,12 +64,15 @@ func main() {
 			os.Exit(1)
 		}
 		commandDeleteSnapshot(ctx, client, snapshotId)
+		if err == nil {
+			fmt.Println("snapshot id: \"", snapshotId, "\" deleted")
+		}
 	} else {
 		err = errors.New("unknown command: " + command)
 	}
 
 	if err != nil {
-		fmt.Println("ERROR: ", err.Error())
+		os.Stderr.WriteString("ERROR: ", err.Error())
 		os.Exit(1)
 	}
 
