@@ -23,7 +23,7 @@ func main() {
 	}
 
 	if len(flag.Args()) < 1 {
-		println("command missed!")
+		fmt.Println("command missed!")
 		print(help())
 		os.Exit(1)
 	}
@@ -44,23 +44,23 @@ func main() {
 	} else if command == "snapshotVolume" {
 		volumeName := flag.Arg(1)
 		if volumeName == "" {
-			println("volumeName missed!")
+			fmt.Println("volumeName missed!")
 			os.Exit(1)
 		}
 		region := flag.Arg(2)
 		if region == "" {
-			println("region missed!")
+			fmt.Println("region missed!")
 			os.Exit(1)
 		}
 		var snapshotId string
 		snapshotId, err = commandSnapshotVolume(ctx, client, volumeName, region, flag.Arg(3))
 		if err == nil {
-			println("snapshot created: \"", snapshotId, "\"")
+			fmt.Println("snapshot created: \"", snapshotId, "\"")
 		}
 	} else if command == "deleteSnapshot" {
 		snapshotId := flag.Arg(1)
 		if snapshotId == "" {
-			println("snapshotId missed!")
+			fmt.Println("snapshotId missed!")
 			os.Exit(1)
 		}
 		commandDeleteSnapshot(ctx, client, snapshotId)
@@ -69,7 +69,7 @@ func main() {
 	}
 
 	if err != nil {
-		println("ERROR: ", err.Error())
+		fmt.Println("ERROR: ", err.Error())
 		os.Exit(1)
 	}
 
@@ -130,9 +130,9 @@ func commandListSnapshots(ctx context.Context, client *godo.Client) error {
 		return err
 	}
 
-	println("Snaphots found: ", len(result))
+	fmt.Println("Snaphots found: ", len(result))
 	for _, snapshot := range result {
-		println(snapshot.Name)
+		fmt.Println(snapshot.Name)
 		// godo.Snapshot{ID:"28015723", Name:"git.hdws.de 2017-09-22", ResourceID:"5171268", ResourceType:"droplet", Regions:["fra1"], MinDiskSize:30, SizeGigaBytes:5.89, Created:"2017-09-22T22:39:52Z"}
 		fmt.Printf("%v %v %v %v[%v] %vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
 	}
