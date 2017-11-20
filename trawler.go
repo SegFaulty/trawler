@@ -10,6 +10,7 @@ import (
 	"golang.org/x/oauth2"
 	"flag"
 	"fmt"
+	"regexp"
 )
 
 func main() {
@@ -67,12 +68,23 @@ func main() {
 		if err == nil {
 			fmt.Println("snapshot id: \"", snapshotId, "\" deleted")
 		}
+	} else if command == "cleanupSnapshots" {
+		resourceId := flag.Arg(1)
+		if resourceId == "" {
+			fmt.Println("recourceId missed!")
+			os.Exit(1)
+		}
+		retentionString := flag.Arg(2)
+		err = commandCleanupSnapshots(ctx, client, resourceId, retentionString)
+		if err == nil {
+			//fmt.Println("snapshot id: \"", snapshotId, "\" deleted")
+		}
 	} else {
 		err = errors.New("unknown command: " + command)
 	}
 
 	if err != nil {
-		os.Stderr.WriteString("ERROR: ", err.Error())
+		os.Stderr.WriteString( "Error: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
@@ -136,11 +148,78 @@ func commandListSnapshots(ctx context.Context, client *godo.Client) error {
 	fmt.Println("Snaphots found: ", len(result))
 	for _, snapshot := range result {
 		fmt.Println(snapshot.Name)
-		// godo.Snapshot{ID:"28015723", Name:"git.hdws.de 2017-09-22", ResourceID:"5171268", ResourceType:"droplet", Regions:["fra1"], MinDiskSize:30, SizeGigaBytes:5.89, Created:"2017-09-22T22:39:52Z"}
-		fmt.Printf("%v %v %v %v[%v] %vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
+		fmt.Printf("  %v %v %v %v[%v] %vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
 	}
 	return nil
 }
+
+func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceId string, retentionString string) error {
+
+	if retentionString == "" {
+		retentionString = "1r"
+	}
+	// retentionString is simple numeric, so we take it as n-last
+	if _, err := strconv.Atoi(retentionString); err == nil {
+		retentionString = retentionString+"r"
+	}
+
+	fullStringRegexp := regexp.MustCompile("^(\\d+[rhdwmy])+$")
+	if( !fullStringRegexp.MatchString(retentionString) ){
+		return errors.New("invalid retention parameter")
+	}
+
+
+	allSnapshots, err := getSnapshotList(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	snapshots := make([]godo.Snapshot,0);
+	for _, snapshot := range allSnapshots {
+		if( snapshot.ResourceID==resourceId ) {
+			snapshots = append(snapshots,snapshot)
+		}
+	}
+
+	if len(snapshots)>0 {
+		remainingSnapshotIds := make(map[string]bool)
+		retentionRegExp := regexp.MustCompile("(\\d+)([rhdwmy]+)")
+		for _, retentionElement := range retentionRegExp.FindAllStringSubmatch(retentionString, -1) {
+			retentionType := retentionElement[2]
+			retentionCount,_ := strconv.Atoi(retentionElement[1])
+
+			switch retentionType {
+			case "r":
+				startIndex := len(snapshots) - retentionCount
+				// emulate max(startIndex, 0)
+				if startIndex<0 {
+					startIndex = 0
+				}
+				endIndex := len(snapshots)
+				remainingSnapshots := snapshots[startIndex : endIndex]
+				for _, snapshot := range remainingSnapshots {
+					remainingSnapshotIds[snapshot.ID] = true
+				}
+			default:
+				return errors.New("invalid retentionType " + retentionType)
+			}
+
+		}
+
+		for _, snapshot := range snapshots {
+			if _,exists := remainingSnapshotIds[snapshot.ID]; exists == false{
+				_, err := client.Snapshots.Delete(ctx, snapshot.ID)
+				if err != nil {
+					return err
+				}
+
+			}
+		}
+	}
+
+	return nil
+}
+
 
 func help() string {
 	var help string
@@ -148,6 +227,9 @@ func help() string {
 	help += "listSnapshots: list all droplet and volume snapshots\n"
 	help += "snapshotVolume VOLUMENAME REGION [SNAPSHOTNAME]: create snapshot of given volume\n"
 	help += "deleteSnapshot SNAPSHOTID: delete snapshot\n"
+	help += "cleanupSnapshots RESOURCEID [RETENTION]: delete all snapshots, not matching to retention-strategy. \n"
+	help += "                 retention-strategy: default 1r, int will be converted to (n)r.\n"
+	help += "                                  r: 'r' stands for 'recent'. So '3r' means 'keep the 3 most recent snapshots'.\n"
 	return help
 }
 
