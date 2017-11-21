@@ -14,7 +14,6 @@ a simple retention manager for digital ocean snapshots (droplets and volumes)
 "token" is your digitalocean API-Token: see https://cloud.digitalocean.com/settings/api/tokens 
 
 	./trawler -token 29e..6 listResources
-
 	
 ### list all snapshots
 
