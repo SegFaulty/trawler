@@ -11,12 +11,15 @@ import (
 	"flag"
 	"fmt"
 	"regexp"
+	"text/tabwriter"
 )
 
 func main() {
 
 	var token string
 	flag.StringVar(&token, "token", "", "[REQUIRED] your digital ocean api token")
+	var dryMode bool
+	flag.BoolVar(&dryMode, "dry", false, "dry mode, don't delete only show")
 	flag.Parse()
 	if token == "" {
 		flag.Usage()
@@ -24,9 +27,17 @@ func main() {
 	}
 
 	if len(flag.Args()) < 1 {
-		fmt.Println("command missed!")
+		os.Stderr.WriteString( "command missed!" + "\n")
 		print(help())
 		os.Exit(1)
+	}
+
+	// warn if -dry is used in the wrong place
+	for _, arg := range(flag.Args()) {
+		if arg=="-dry" {
+			os.Stderr.WriteString( "you have to use -dry flag before the first argument (sorry, this is go flag magic)" + "\n")
+			os.Exit(1)
+		}
 	}
 
 	command := flag.Arg(0)
@@ -63,7 +74,7 @@ func main() {
 			fmt.Println("snapshotId missed!")
 			os.Exit(1)
 		}
-		commandDeleteSnapshot(ctx, client, snapshotId)
+		commandDeleteSnapshot(ctx, client, snapshotId, dryMode)
 		if err == nil {
 			fmt.Println("snapshot id: \"", snapshotId, "\" deleted")
 		}
@@ -74,10 +85,7 @@ func main() {
 			os.Exit(1)
 		}
 		retentionString := flag.Arg(2)
-		err = commandCleanupSnapshots(ctx, client, resourceId, retentionString)
-		if err == nil {
-			//fmt.Println("snapshot id: \"", snapshotId, "\" deleted")
-		}
+		err = commandCleanupSnapshots(ctx, client, resourceId, retentionString, dryMode)
 	} else {
 		err = errors.New("unknown command: " + command)
 	}
@@ -89,9 +97,14 @@ func main() {
 
 }
 
-func commandDeleteSnapshot(ctx context.Context, client *godo.Client, snapshotId string) error {
-	_, err := client.Snapshots.Delete(ctx, snapshotId)
-	return err
+func commandDeleteSnapshot(ctx context.Context, client *godo.Client, snapshotId string, dryMode bool) error {
+	if dryMode {
+		fmt.Println("dry mode in effect: simulate delete " + snapshotId)
+		return nil
+	} else {
+		_, err := client.Snapshots.Delete(ctx, snapshotId)
+		return err
+	}
 }
 
 func commandSnapshotVolume(ctx context.Context, client *godo.Client, volumeId string, snapshotName string) (string, error) {
@@ -122,10 +135,12 @@ func commandListSnapshots(ctx context.Context, client *godo.Client, resourceId s
 	}
 
 	fmt.Println("Snaphots found: ", len(result))
+	tabWriter := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprint(tabWriter, "TYPE\tRESOURCEID\tCREATED\tNAME[ID]\tSIZE\n")
 	for _, snapshot := range result {
-		fmt.Println(snapshot.Name)
-		fmt.Printf("  %v %v %v %v[%v] %vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
+		fmt.Fprintf(tabWriter, "%v\t%v\t%v\t%v[%v]\t%vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
 	}
+	tabWriter.Flush()
 	return nil
 }
 
@@ -214,17 +229,17 @@ func commandListResources(ctx context.Context, client *godo.Client) error {
 	}
 
 
-	fmt.Printf("========================================================\n",)
-	fmt.Printf("%v | %v | %v | %v | %v \n", "ResourceType", "ResourceId", "Name", "Region", "DiskSize(GB)")
-	fmt.Printf("========================================================\n",)
+	tabWriter := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tabWriter, "TYPE\tRESOURCEID\tNAME\tREGION\tDISKSIZE(GB)")
 	for _, doResource := range resources {
-		fmt.Printf("%v | %v | %v | %v (%v) | %v \n", doResource.resourceType, doResource.resourceId, doResource.name, doResource.region,  doResource.regionCode ,doResource.sizeGb)
+		fmt.Fprintf(tabWriter, "%v\t%v\t%v\t%v (%v)\t%v\n", doResource.resourceType, doResource.resourceId, doResource.name, doResource.region,  doResource.regionCode ,doResource.sizeGb)
 	}
+	tabWriter.Flush()
 
 	return nil
 }
 
-func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceId string, retentionString string) error {
+func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceId string, retentionString string, dryMode bool) error {
 
 	if retentionString == "" {
 		retentionString = "1r"
@@ -247,36 +262,45 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 
 	if len(snapshots)>0 {
 		remainingSnapshotIds := make(map[string]bool)
-		retentionRegExp := regexp.MustCompile("(\\d+)([rhdwmy]+)")
+		retentionRegExp := regexp.MustCompile("(\\d+)([rdwmy]+)")
 		for _, retentionElement := range retentionRegExp.FindAllStringSubmatch(retentionString, -1) {
 			retentionType := retentionElement[2]
 			retentionCount,_ := strconv.Atoi(retentionElement[1])
 
-			switch retentionType {
-			case "r":
+			if( retentionType=="r" ) {
 				startIndex := len(snapshots) - retentionCount
 				// emulate max(startIndex, 0)
-				if startIndex<0 {
+				if startIndex < 0 {
 					startIndex = 0
 				}
 				endIndex := len(snapshots)
 				remainingSnapshots := snapshots[startIndex : endIndex]
 				for _, snapshot := range remainingSnapshots {
 					remainingSnapshotIds[snapshot.ID] = true
+
 				}
-			default:
-				return errors.New("invalid retentionType " + retentionType)
+			}else{
+				elementRemainingSnapshotIds, err := getRemainingSnapshotIds(snapshots, retentionType, retentionCount, dryMode)
+				if err != nil {
+					return err
+				}
+				for snapshotId := range elementRemainingSnapshotIds { // add to remaining list
+					remainingSnapshotIds[snapshotId] = true
+				}
 			}
 
 		}
 
 		for _, snapshot := range snapshots {
 			if _,exists := remainingSnapshotIds[snapshot.ID]; exists == false{
+				if dryMode {
+					fmt.Println("dry mode in effect: simulate delete " + snapshot.ID + " " + snapshot.Created)
+				} else {
 				_, err := client.Snapshots.Delete(ctx, snapshot.ID)
-				if err != nil {
-					return err
+					if err != nil {
+						return err
+					}
 				}
-
 			}
 		}
 	}
@@ -284,17 +308,92 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 	return nil
 }
 
+func getRemainingSnapshotIds(snapshots []godo.Snapshot, retentionType string, retentionCount int, debug bool) (map[string]bool, error) {
+	remainingSnapshotIds := make(map[string]bool)
+
+	// build startTime endTime
+	var startTime time.Time
+	var endTime time.Time
+	now := time.Now()
+	switch retentionType {
+	case "y": // year
+		startTime = time.Date(now.Year(), 1,1,0,0,0,0,now.Location() )
+		endTime = startTime.AddDate(1,0,0)
+	case "m": // month
+		startTime = time.Date(now.Year(), now.Month(),1,0,0,0,0,now.Location() )
+		endTime = startTime.AddDate(0,1,0)
+	case "d": // day
+		startTime = time.Date(now.Year(), now.Month(),now.Day(),0,0,0,0,now.Location() )
+		endTime = startTime.AddDate(0,0,1)
+	case "w": // week
+		startTime = time.Date(now.Year(), now.Month(),now.Day(),0,0,0,0,now.Location() )
+		// iterate back to monday
+		for startTime.Weekday() != time.Monday {
+			startTime = startTime.AddDate(0, 0, -1)
+		}
+		endTime = startTime.AddDate(0,0,7)
+	default:
+		return nil, errors.New("invalid retentionType " + retentionType)
+	}
+
+
+	// get recent snapshot for every time period
+	for currentCount :=1; currentCount<=retentionCount; currentCount++ {
+
+		// iterate reverse, most recently snapshot first
+		for index:=len(snapshots)-1; index>0 ; index-- {
+			snapshot := snapshots[index]
+
+
+			// get/parse snapshot time
+			snapshotTimestamp, err := time.Parse("2006-01-02T15:04:05Z", snapshot.Created)
+			if  err != nil {
+				return nil, errors.New(fmt.Sprintf("ERROR: parse time %q resulted in error: %v\n", snapshot.Created, err))
+			}
+			// check if shnapshot in current time period
+			if (snapshotTimestamp.Equal(startTime) || snapshotTimestamp.After(startTime)) &&  snapshotTimestamp.Before(endTime) {
+				remainingSnapshotIds[snapshot.ID] = true
+				if debug {
+					fmt.Println(snapshot.Created + " (" + snapshot.ID + ") take it as retentionCount: " + strconv.Itoa(currentCount) + " for retentionType: " + retentionType)
+				}
+				break; // first (most recent) snapshot in this time period - take it, fo to next time period
+			}
+		}
+
+		// calculate previous time period
+		switch retentionType {
+		case "y":
+			startTime = startTime.AddDate(-1,0,0)
+			endTime = startTime.AddDate(1,0,0)
+		case "m":
+			startTime = startTime.AddDate(0,-1,0)
+			endTime = startTime.AddDate(0,1,0)
+		case "d":
+			startTime = startTime.AddDate(0,0,-1)
+			endTime = startTime.AddDate(0,0,1)
+		case "w":
+			startTime = startTime.AddDate(0,0,-7)
+			endTime = startTime.AddDate(0,0,7)
+		}
+
+	}
+
+	return remainingSnapshotIds, nil
+}
+
 
 func help() string {
 	var help string
+	help += "https://github.com/SegFaulty/trawler:\n"
 	help += "Commands:\n"
-	help += "listResources: list all digital ocean resources\n"
-	help += "listSnapshots [RESOURCEID]: list all droplet and volume snapshots, or filtered to [RESOURCEID] \n"
-	help += "snapshotVolume VOLUMEIID [SNAPSHOTNAME]: create snapshot of given volume\n"
+	help += "listResources: list all digital ocean resources accessable with this token\n"
+	help += "listSnapshots [RESOURCEID]: list all droplet and volume snapshots, or filtered by [RESOURCEID] \n"
+	help += "snapshotVolume VOLUMEID [SNAPSHOTNAME]: create snapshot of given volume\n"
 	help += "deleteSnapshot SNAPSHOTID: delete snapshot\n"
 	help += "cleanupSnapshots RESOURCEID [RETENTION]: delete all snapshots, not matching to retention-strategy. \n"
 	help += "                 retention-strategy: default 1r, int will be converted to (n)r.\n"
 	help += "                                  r: 'r' stands for 'recent'. So '3r' means 'keep the 3 most recent snapshots'.\n"
+	help += "                                  y: 'r' stands for 'recent'. So '3r' means 'keep the 3 most recent snapshots'.\n"
 	return help
 }
 
