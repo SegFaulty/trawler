@@ -40,23 +40,22 @@ func main() {
 	ctx := context.TODO()
 
 	var err error
-	if command == "listSnapshots" {
-		err = commandListSnapshots(ctx, client)
+	if command == "listResources" {
+		err = commandListResources(ctx, client)
+	} else if command == "listSnapshots" {
+		resourceId := flag.Arg(1)
+		err = commandListSnapshots(ctx, client, resourceId)
 	} else if command == "snapshotVolume" {
-		volumeName := flag.Arg(1)
-		if volumeName == "" {
-			fmt.Println("volumeName missed!")
+		volumeId := flag.Arg(1)
+		if volumeId == "" {
+			fmt.Println("volumeId missed!")
 			os.Exit(1)
 		}
-		region := flag.Arg(2)
-		if region == "" {
-			fmt.Println("region missed!")
-			os.Exit(1)
-		}
+
 		var snapshotId string
-		snapshotId, err = commandSnapshotVolume(ctx, client, volumeName, region, flag.Arg(3))
+		snapshotId, err = commandSnapshotVolume(ctx, client, volumeId, flag.Arg(2))
 		if err == nil {
-			fmt.Println("snapshot id: \"", snapshotId, "\" for volume: \""+volumeName+"\"  created:")
+			fmt.Println("snapshot id: \"", snapshotId, "\" for volume: \""+ volumeId +"\"  created")
 		}
 	} else if command == "deleteSnapshot" {
 		snapshotId := flag.Arg(1)
@@ -95,14 +94,15 @@ func commandDeleteSnapshot(ctx context.Context, client *godo.Client, snapshotId 
 	return err
 }
 
-func commandSnapshotVolume(ctx context.Context, client *godo.Client, volumeName string, region string, snapshotName string) (string, error) {
-	volumeId, err := getVolumeIdByVolumeName(ctx, client, volumeName, region)
+func commandSnapshotVolume(ctx context.Context, client *godo.Client, volumeId string, snapshotName string) (string, error) {
+	volume, _, err := client.Storage.GetVolume(ctx, volumeId)
 	if err != nil {
 		return "", err
 	}
+
 	if snapshotName == "" {
 		timestamp := strconv.Itoa(int(time.Now().Unix()))
-		snapshotName = volumeName + "-" + timestamp
+		snapshotName = volume.Name + "-" + timestamp
 	}
 	request := &godo.SnapshotCreateRequest{}
 	request.VolumeID = volumeId
@@ -112,35 +112,11 @@ func commandSnapshotVolume(ctx context.Context, client *godo.Client, volumeName 
 	if err != nil {
 		return "", err
 	}
-
 	return snapshot.ID, nil
 }
 
-func getVolumeIdByVolumeName(ctx context.Context, client *godo.Client, volumeName string, region string) (string, error) {
-
-	options := &godo.ListOptions{}
-	options.PerPage = 2
-	params := &godo.ListVolumeParams{}
-	params.Name = volumeName
-	params.Region = region
-	params.ListOptions = options
-
-	volumes, _, err := client.Storage.ListVolumes(ctx, params)
-	if err != nil {
-		return "", err
-	}
-	if len(volumes) > 1 {
-		return "", errors.New(strconv.Itoa(len(volumes)) + " volumes found with name " + volumeName + " please provide --region")
-	}
-	if len(volumes) == 0 {
-		return "", errors.New("volume " + volumeName + " not found")
-	}
-	volumeId := volumes[0].ID
-	return volumeId, nil
-}
-
-func commandListSnapshots(ctx context.Context, client *godo.Client) error {
-	result, err := getSnapshotList(ctx, client)
+func commandListSnapshots(ctx context.Context, client *godo.Client, resourceId string) error {
+	result, err := getSnapshotList(ctx, client, resourceId)
 	if err != nil {
 		return err
 	}
@@ -150,6 +126,101 @@ func commandListSnapshots(ctx context.Context, client *godo.Client) error {
 		fmt.Println(snapshot.Name)
 		fmt.Printf("  %v %v %v %v[%v] %vGB(%v)\n", snapshot.ResourceType, snapshot.ResourceID, snapshot.Created, snapshot.Name, snapshot.ID, snapshot.SizeGigaBytes, snapshot.MinDiskSize)
 	}
+	return nil
+}
+
+func commandListResources(ctx context.Context, client *godo.Client) error {
+
+	type DoResource struct {
+		resourceId string
+		resourceType string
+		name string
+		region string
+		regionCode string
+		sizeGb string
+	}
+
+	resources := make([]DoResource,0)
+
+
+	// get all droplets
+	options := &godo.ListOptions{}
+	options.PerPage = 1000
+	for {
+		droplets, resp, err := client.Droplets.List(ctx, options)
+		if err != nil {
+			return err
+		}
+		// append our list
+		for _, droplet := range droplets {
+			doResource := DoResource{}
+			doResource.resourceType = "droplet";
+			doResource.resourceId = strconv.Itoa(droplet.ID);
+			doResource.name = droplet.Name;
+			doResource.regionCode = droplet.Region.Slug;
+			doResource.region = droplet.Region.Name;
+			doResource.sizeGb = strconv.Itoa(droplet.Size.Disk);
+			resources = append(resources, doResource)
+		}
+
+		// if we are at the last page, break out the for loop
+		if resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			return err
+		}
+
+		// set the page we want for the next request
+		options.Page = page + 1
+	}
+
+
+	// get all Volumes / blockStorage
+	options = &godo.ListOptions{}
+	options.PerPage = 1000
+	listVolumeParams := &godo.ListVolumeParams{}
+	listVolumeParams.ListOptions = options
+	for {
+		volumes, resp, err := client.Storage.ListVolumes(ctx, listVolumeParams)
+		if err != nil {
+			return err
+		}
+		for _, v := range volumes {
+			doResource := DoResource{}
+			doResource.resourceType = "volume";
+			doResource.resourceId = v.ID
+			doResource.name = v.Name;
+			doResource.region = v.Region.Name;
+			doResource.regionCode = v.Region.Slug;
+			doResource.sizeGb =  strconv.Itoa(int(v.SizeGigaBytes));
+			resources = append(resources, doResource)
+		}
+
+		// if we are at the last page, break out the for loop
+		if resp.Links == nil || resp.Links.IsLastPage() {
+			break
+		}
+
+		page, err := resp.Links.CurrentPage()
+		if err != nil {
+			return err
+		}
+
+		// set the page we want for the next request
+		options.Page = page + 1
+	}
+
+
+	fmt.Printf("========================================================\n",)
+	fmt.Printf("%v | %v | %v | %v | %v \n", "ResourceType", "ResourceId", "Name", "Region", "DiskSize(GB)")
+	fmt.Printf("========================================================\n",)
+	for _, doResource := range resources {
+		fmt.Printf("%v | %v | %v | %v (%v) | %v \n", doResource.resourceType, doResource.resourceId, doResource.name, doResource.region,  doResource.regionCode ,doResource.sizeGb)
+	}
+
 	return nil
 }
 
@@ -169,16 +240,9 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 	}
 
 
-	allSnapshots, err := getSnapshotList(ctx, client)
+	snapshots, err := getSnapshotList(ctx, client, resourceId)
 	if err != nil {
 		return err
-	}
-
-	snapshots := make([]godo.Snapshot,0);
-	for _, snapshot := range allSnapshots {
-		if( snapshot.ResourceID==resourceId ) {
-			snapshots = append(snapshots,snapshot)
-		}
 	}
 
 	if len(snapshots)>0 {
@@ -224,8 +288,9 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 func help() string {
 	var help string
 	help += "Commands:\n"
-	help += "listSnapshots: list all droplet and volume snapshots\n"
-	help += "snapshotVolume VOLUMENAME REGION [SNAPSHOTNAME]: create snapshot of given volume\n"
+	help += "listResources: list all digital ocean resources\n"
+	help += "listSnapshots [RESOURCEID]: list all droplet and volume snapshots, or filtered to [RESOURCEID] \n"
+	help += "snapshotVolume VOLUMEIID [SNAPSHOTNAME]: create snapshot of given volume\n"
 	help += "deleteSnapshot SNAPSHOTID: delete snapshot\n"
 	help += "cleanupSnapshots RESOURCEID [RETENTION]: delete all snapshots, not matching to retention-strategy. \n"
 	help += "                 retention-strategy: default 1r, int will be converted to (n)r.\n"
@@ -244,7 +309,7 @@ func (t *TokenSource) Token() (*oauth2.Token, error) {
 	return token, nil
 }
 
-func getSnapshotList(ctx context.Context, client *godo.Client) ([]godo.Snapshot, error) {
+func getSnapshotList(ctx context.Context, client *godo.Client, resourceId string) ([]godo.Snapshot, error) {
 
 	list := []godo.Snapshot{}
 
@@ -256,8 +321,12 @@ func getSnapshotList(ctx context.Context, client *godo.Client) ([]godo.Snapshot,
 			return nil, err
 		}
 		// append our list
-		for _, d := range snapshots {
-			list = append(list, d)
+		for _, snapshot := range snapshots {
+			if resourceId=="" {
+				list = append(list, snapshot)
+			}else if resourceId==snapshot.ResourceID {
+				list = append(list, snapshot)
+			}
 		}
 
 		// if we are at the last page, break out the for loop
