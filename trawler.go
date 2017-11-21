@@ -2,16 +2,16 @@ package main
 
 import (
 	"errors"
-	"golang.org/x/net/context"
-	"os"
-	"strconv"
-	"time"
-	"github.com/digitalocean/godo"
-	"golang.org/x/oauth2"
 	"flag"
 	"fmt"
+	"github.com/digitalocean/godo"
+	"golang.org/x/net/context"
+	"golang.org/x/oauth2"
+	"os"
 	"regexp"
+	"strconv"
 	"text/tabwriter"
+	"time"
 )
 
 func main() {
@@ -27,15 +27,15 @@ func main() {
 	}
 
 	if len(flag.Args()) < 1 {
-		os.Stderr.WriteString( "command missed!" + "\n")
+		os.Stderr.WriteString("command missed!" + "\n")
 		print(help())
 		os.Exit(1)
 	}
 
 	// warn if -dry is used in the wrong place
-	for _, arg := range(flag.Args()) {
-		if arg=="-dry" {
-			os.Stderr.WriteString( "you have to use -dry flag before the first argument (sorry, this is go flag magic)" + "\n")
+	for _, arg := range flag.Args() {
+		if arg == "-dry" {
+			os.Stderr.WriteString("you have to use -dry flag before the first argument (sorry, this is go flag magic)" + "\n")
 			os.Exit(1)
 		}
 	}
@@ -66,7 +66,7 @@ func main() {
 		var snapshotId string
 		snapshotId, err = commandSnapshotVolume(ctx, client, volumeId, flag.Arg(2))
 		if err == nil {
-			fmt.Println("snapshot id: \"", snapshotId, "\" for volume: \""+ volumeId +"\"  created")
+			fmt.Println("snapshot id: \"", snapshotId, "\" for volume: \""+volumeId+"\"  created")
 		}
 	} else if command == "deleteSnapshot" {
 		snapshotId := flag.Arg(1)
@@ -91,7 +91,7 @@ func main() {
 	}
 
 	if err != nil {
-		os.Stderr.WriteString( "Error: " + err.Error() + "\n")
+		os.Stderr.WriteString("Error: " + err.Error() + "\n")
 		os.Exit(1)
 	}
 
@@ -147,16 +147,15 @@ func commandListSnapshots(ctx context.Context, client *godo.Client, resourceId s
 func commandListResources(ctx context.Context, client *godo.Client) error {
 
 	type DoResource struct {
-		resourceId string
+		resourceId   string
 		resourceType string
-		name string
-		region string
-		regionCode string
-		sizeGb string
+		name         string
+		region       string
+		regionCode   string
+		sizeGb       string
 	}
 
-	resources := make([]DoResource,0)
-
+	resources := make([]DoResource, 0)
 
 	// get all droplets
 	options := &godo.ListOptions{}
@@ -169,12 +168,12 @@ func commandListResources(ctx context.Context, client *godo.Client) error {
 		// append our list
 		for _, droplet := range droplets {
 			doResource := DoResource{}
-			doResource.resourceType = "droplet";
-			doResource.resourceId = strconv.Itoa(droplet.ID);
-			doResource.name = droplet.Name;
-			doResource.regionCode = droplet.Region.Slug;
-			doResource.region = droplet.Region.Name;
-			doResource.sizeGb = strconv.Itoa(droplet.Size.Disk);
+			doResource.resourceType = "droplet"
+			doResource.resourceId = strconv.Itoa(droplet.ID)
+			doResource.name = droplet.Name
+			doResource.regionCode = droplet.Region.Slug
+			doResource.region = droplet.Region.Name
+			doResource.sizeGb = strconv.Itoa(droplet.Size.Disk)
 			resources = append(resources, doResource)
 		}
 
@@ -191,7 +190,6 @@ func commandListResources(ctx context.Context, client *godo.Client) error {
 		// set the page we want for the next request
 		options.Page = page + 1
 	}
-
 
 	// get all Volumes / blockStorage
 	options = &godo.ListOptions{}
@@ -205,12 +203,12 @@ func commandListResources(ctx context.Context, client *godo.Client) error {
 		}
 		for _, v := range volumes {
 			doResource := DoResource{}
-			doResource.resourceType = "volume";
+			doResource.resourceType = "volume"
 			doResource.resourceId = v.ID
-			doResource.name = v.Name;
-			doResource.region = v.Region.Name;
-			doResource.regionCode = v.Region.Slug;
-			doResource.sizeGb =  strconv.Itoa(int(v.SizeGigaBytes));
+			doResource.name = v.Name
+			doResource.region = v.Region.Name
+			doResource.regionCode = v.Region.Slug
+			doResource.sizeGb = strconv.Itoa(int(v.SizeGigaBytes))
 			resources = append(resources, doResource)
 		}
 
@@ -228,11 +226,10 @@ func commandListResources(ctx context.Context, client *godo.Client) error {
 		options.Page = page + 1
 	}
 
-
 	tabWriter := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	fmt.Fprintln(tabWriter, "TYPE\tRESOURCEID\tNAME\tREGION\tDISKSIZE(GB)")
 	for _, doResource := range resources {
-		fmt.Fprintf(tabWriter, "%v\t%v\t%v\t%v (%v)\t%v\n", doResource.resourceType, doResource.resourceId, doResource.name, doResource.region,  doResource.regionCode ,doResource.sizeGb)
+		fmt.Fprintf(tabWriter, "%v\t%v\t%v\t%v (%v)\t%v\n", doResource.resourceType, doResource.resourceId, doResource.name, doResource.region, doResource.regionCode, doResource.sizeGb)
 	}
 	tabWriter.Flush()
 
@@ -246,47 +243,45 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 	}
 	// retentionString is simple numeric, so we take it as n-last
 	if _, err := strconv.Atoi(retentionString); err == nil {
-		retentionString = retentionString+"r"
+		retentionString = retentionString + "r"
 	}
 
 	fullStringRegexp := regexp.MustCompile("^(\\d+[rhdwmy])+$")
-	if( !fullStringRegexp.MatchString(retentionString) ){
+	if !fullStringRegexp.MatchString(retentionString) {
 		return errors.New("invalid retention parameter")
 	}
-
 
 	snapshots, err := getSnapshotList(ctx, client, resourceId)
 	if err != nil {
 		return err
 	}
 
-	if len(snapshots)>0 {
+	if len(snapshots) > 0 {
 		if dryMode {
-			fmt.Println("snapshots found: "+strconv.Itoa(len(snapshots)))
+			fmt.Println("snapshots found: " + strconv.Itoa(len(snapshots)))
 		}
 		remainingSnapshotIds := make(map[string]bool)
 		retentionRegExp := regexp.MustCompile("(\\d+)([rdwmy]+)")
 		for _, retentionElement := range retentionRegExp.FindAllStringSubmatch(retentionString, -1) {
 			retentionType := retentionElement[2]
-			retentionCount,_ := strconv.Atoi(retentionElement[1])
+			retentionCount, _ := strconv.Atoi(retentionElement[1])
 
-			if( retentionType=="r" ) {
+			if retentionType == "r" {
 				startIndex := len(snapshots) - retentionCount
 				// emulate max(startIndex, 0)
 				if startIndex < 0 {
 					startIndex = 0
 				}
 				endIndex := len(snapshots)
-				remainingSnapshots := snapshots[startIndex : endIndex]
+				remainingSnapshots := snapshots[startIndex:endIndex]
 				for _, snapshot := range remainingSnapshots {
 					remainingSnapshotIds[snapshot.ID] = true
 					if dryMode {
 						fmt.Println(snapshot.Created + " (" + snapshot.ID + ") take it as retentionCount: " + strconv.Itoa(len(remainingSnapshotIds)) + " for retentionType: " + retentionType)
 					}
 
-
 				}
-			}else{
+			} else {
 				elementRemainingSnapshotIds, err := getRemainingSnapshotIds(snapshots, retentionType, retentionCount, dryMode)
 				if err != nil {
 					return err
@@ -298,11 +293,11 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 
 		}
 		for _, snapshot := range snapshots {
-			if _,exists := remainingSnapshotIds[snapshot.ID]; exists == false{
+			if _, exists := remainingSnapshotIds[snapshot.ID]; exists == false {
 				if dryMode {
 					fmt.Println("dry mode in effect: simulate delete " + snapshot.ID + " " + snapshot.Created)
 				} else {
-				_, err := client.Snapshots.Delete(ctx, snapshot.ID)
+					_, err := client.Snapshots.Delete(ctx, snapshot.ID)
 					if err != nil {
 						return err
 					}
@@ -310,7 +305,7 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 			}
 		}
 		if dryMode {
-			fmt.Println("remaining snapshots: "+strconv.Itoa(len(remainingSnapshotIds)))
+			fmt.Println("remaining snapshots: " + strconv.Itoa(len(remainingSnapshotIds)))
 		}
 	}
 
@@ -326,70 +321,66 @@ func getRemainingSnapshotIds(snapshots []godo.Snapshot, retentionType string, re
 	now := time.Now()
 	switch retentionType {
 	case "y": // year
-		startTime = time.Date(now.Year(), 1,1,0,0,0,0,now.Location() )
-		endTime = startTime.AddDate(1,0,0)
+		startTime = time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+		endTime = startTime.AddDate(1, 0, 0)
 	case "m": // month
-		startTime = time.Date(now.Year(), now.Month(),1,0,0,0,0,now.Location() )
-		endTime = startTime.AddDate(0,1,0)
+		startTime = time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+		endTime = startTime.AddDate(0, 1, 0)
 	case "d": // day
-		startTime = time.Date(now.Year(), now.Month(),now.Day(),0,0,0,0,now.Location() )
-		endTime = startTime.AddDate(0,0,1)
+		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		endTime = startTime.AddDate(0, 0, 1)
 	case "w": // week
-		startTime = time.Date(now.Year(), now.Month(),now.Day(),0,0,0,0,now.Location() )
+		startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		// iterate back to monday
 		for startTime.Weekday() != time.Monday {
 			startTime = startTime.AddDate(0, 0, -1)
 		}
-		endTime = startTime.AddDate(0,0,7)
+		endTime = startTime.AddDate(0, 0, 7)
 	default:
 		return nil, errors.New("invalid retentionType " + retentionType)
 	}
 
-
 	// get recent snapshot for every time period
-	for currentCount :=1; currentCount<=retentionCount; currentCount++ {
+	for currentCount := 1; currentCount <= retentionCount; currentCount++ {
 
 		// iterate reverse, most recently snapshot first
-		for index:=len(snapshots)-1; index>0 ; index-- {
+		for index := len(snapshots) - 1; index > 0; index-- {
 			snapshot := snapshots[index]
-
 
 			// get/parse snapshot time
 			snapshotTimestamp, err := time.Parse("2006-01-02T15:04:05Z", snapshot.Created)
-			if  err != nil {
+			if err != nil {
 				return nil, errors.New(fmt.Sprintf("ERROR: parse time %q resulted in error: %v\n", snapshot.Created, err))
 			}
 			// check if shnapshot in current time period
-			if (snapshotTimestamp.Equal(startTime) || snapshotTimestamp.After(startTime)) &&  snapshotTimestamp.Before(endTime) {
+			if (snapshotTimestamp.Equal(startTime) || snapshotTimestamp.After(startTime)) && snapshotTimestamp.Before(endTime) {
 				remainingSnapshotIds[snapshot.ID] = true
 				if debug {
 					fmt.Println(snapshot.Created + " (" + snapshot.ID + ") take it as retentionCount: " + strconv.Itoa(currentCount) + " for retentionType: " + retentionType)
 				}
-				break; // first (most recent) snapshot in this time period - take it, fo to next time period
+				break // first (most recent) snapshot in this time period - take it, fo to next time period
 			}
 		}
 
 		// calculate previous time period
 		switch retentionType {
 		case "y":
-			startTime = startTime.AddDate(-1,0,0)
-			endTime = startTime.AddDate(1,0,0)
+			startTime = startTime.AddDate(-1, 0, 0)
+			endTime = startTime.AddDate(1, 0, 0)
 		case "m":
-			startTime = startTime.AddDate(0,-1,0)
-			endTime = startTime.AddDate(0,1,0)
+			startTime = startTime.AddDate(0, -1, 0)
+			endTime = startTime.AddDate(0, 1, 0)
 		case "d":
-			startTime = startTime.AddDate(0,0,-1)
-			endTime = startTime.AddDate(0,0,1)
+			startTime = startTime.AddDate(0, 0, -1)
+			endTime = startTime.AddDate(0, 0, 1)
 		case "w":
-			startTime = startTime.AddDate(0,0,-7)
-			endTime = startTime.AddDate(0,0,7)
+			startTime = startTime.AddDate(0, 0, -7)
+			endTime = startTime.AddDate(0, 0, 7)
 		}
-
 	}
 
 	return remainingSnapshotIds, nil
 }
-
 
 func help() string {
 	var help string
@@ -430,9 +421,9 @@ func getSnapshotList(ctx context.Context, client *godo.Client, resourceId string
 		}
 		// append our list
 		for _, snapshot := range snapshots {
-			if resourceId=="" {
+			if resourceId == "" {
 				list = append(list, snapshot)
-			}else if resourceId==snapshot.ResourceID {
+			} else if resourceId == snapshot.ResourceID {
 				list = append(list, snapshot)
 			}
 		}
