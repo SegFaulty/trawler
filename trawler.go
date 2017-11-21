@@ -261,6 +261,9 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 	}
 
 	if len(snapshots)>0 {
+		if dryMode {
+			fmt.Println("snapshots found: "+strconv.Itoa(len(snapshots)))
+		}
 		remainingSnapshotIds := make(map[string]bool)
 		retentionRegExp := regexp.MustCompile("(\\d+)([rdwmy]+)")
 		for _, retentionElement := range retentionRegExp.FindAllStringSubmatch(retentionString, -1) {
@@ -277,6 +280,10 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 				remainingSnapshots := snapshots[startIndex : endIndex]
 				for _, snapshot := range remainingSnapshots {
 					remainingSnapshotIds[snapshot.ID] = true
+					if dryMode {
+						fmt.Println(snapshot.Created + " (" + snapshot.ID + ") take it as retentionCount: " + strconv.Itoa(len(remainingSnapshotIds)) + " for retentionType: " + retentionType)
+					}
+
 
 				}
 			}else{
@@ -290,7 +297,6 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 			}
 
 		}
-
 		for _, snapshot := range snapshots {
 			if _,exists := remainingSnapshotIds[snapshot.ID]; exists == false{
 				if dryMode {
@@ -302,6 +308,9 @@ func commandCleanupSnapshots(ctx context.Context, client *godo.Client, resourceI
 					}
 				}
 			}
+		}
+		if dryMode {
+			fmt.Println("remaining snapshots: "+strconv.Itoa(len(remainingSnapshotIds)))
 		}
 	}
 
